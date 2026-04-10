@@ -1,0 +1,15 @@
+# Exclude build artifacts and logs
+ppo_ns3_logs/
+ppo_ns3_refinement/
+__pycache__/
+venv/
+.ipynb_checkpoints/
+
+# Exclude large archives
+*.zip
+*.Identifier
+
+# Exclude temporary test scripts (optional)
+Untitled.ipynb
+test-shm.*
+check_shm.py

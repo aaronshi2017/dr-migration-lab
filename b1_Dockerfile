@@ -1,0 +1,41 @@
+# Use your existing high-performance NVIDIA image
+FROM nvcr.io/nvidia/tensorflow:24.01-tf2-py3
+
+# 1. Install ns-3 dependencies + pybind11 + Protobuf for ns3-ai
+USER root
+RUN apt-get update && apt-get install -y \
+    g++ python3 python3-dev cmake ninja-build git libboost-all-dev \
+    libsqlite3-dev libxml2-dev libgtk-3-dev \
+    pybind11-dev \
+    protobuf-compiler libprotobuf-dev libabsl-dev \
+    pkg-config sqlite3 \
+    && rm -rf /var/lib/apt/lists/*
+
+# 2. Install JupyterLab and ns3-ai Python requirements
+RUN pip install --upgrade pip setuptools wheel
+RUN pip install jupyterlab gymnasium cppyy==3.5.0
+
+# 3. Download and Install ns-3 with ns3-ai
+WORKDIR /opt
+RUN git clone https://gitlab.com/nsnam/ns-3-dev.git ns-3
+WORKDIR /opt/ns-3
+
+# Clone ns3-ai into the contrib folder
+RUN git clone https://github.com/hust-diangroup/ns3-ai.git contrib/ai
+
+# 4. Configure and Build ns-3
+# Note: we explicitly enable the AI module by ensuring dependencies are met
+RUN ./ns3 configure --disable-examples --disable-tests \
+    -- -DPython3_EXECUTABLE=$(which python3)
+RUN ./ns3 build
+
+# 5. Install the ns3-ai python tools into the container
+WORKDIR /opt/ns-3/contrib/ai/python_utils
+RUN pip install -e .
+
+# Set working directory back to our app folder
+WORKDIR /app
+EXPOSE 8888
+
+# Default command starts Jupyter
+CMD ["jupyter", "lab", "--ip=0.0.0.0", "--allow-root", "--no-browser"]
