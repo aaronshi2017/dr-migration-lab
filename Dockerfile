@@ -32,7 +32,8 @@ RUN ./ns3 build
 
 # 6. Fix ns3-ai Python Module
 # Initialized PYTHONPATH correctly to avoid the UndefinedVar warning
-ENV PYTHONPATH="/app:/opt/ns-3/contrib/ai/python_utils:${PYTHONPATH:-}"
+# Change line 35 to this:
+ENV PYTHONPATH="/app:/opt/ns-3/contrib/ai/python_utils${PYTHONPATH:+:${PYTHONPATH}}"
 
 WORKDIR /opt/ns-3/contrib/ai/python_utils
 # Perform a standard install to ensure metadata is created
