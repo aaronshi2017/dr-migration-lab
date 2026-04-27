@@ -1,4 +1,4 @@
-FROM dr-lab-final:v1
+FROM aaronshi2021/dr-lab:v2
 
 # Ensure permissions and paths are correct for the new folder
 WORKDIR /opt/ns-3
