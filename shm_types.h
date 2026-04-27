@@ -1,3 +1,4 @@
+// This header defines the shared memory structures used for communication between the DR simulation and the AI control logic. It includes definitions for nodes, core metrics, and control commands. The structures are packed to ensure a consistent memory layout across different platforms.
 #ifndef SHM_TYPES_H
 #define SHM_TYPES_H
 

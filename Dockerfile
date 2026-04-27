@@ -1,50 +1,18 @@
-# Use the NVIDIA TensorFlow base
-FROM nvcr.io/nvidia/tensorflow:24.01-tf2-py3
+FROM dr-lab-final:v1
 
-# 1. Install system dependencies
-# Added libtbb-dev and gsl for high-performance ns-3 simulations
-RUN apt-get update && apt-get install -y \
-    g++ python3 python3-dev cmake ninja-build git \
-    libboost-all-dev libsqlite3-dev libxml2-dev \
-    libgtk-3-dev pybind11-dev protobuf-compiler \
-    libtbb-dev gsl-bin libgsl-dev \
-    && rm -rf /var/lib/apt/lists/*
-
-# 2. Upgrade core python tools
-RUN pip install --upgrade pip setuptools wheel
-
-# 3. Install required Python libraries
-# Added pandas, matplotlib, and stable-baselines3 for your AI Orchestrator
-RUN pip install jupyterlab gymnasium "cppyy>=3.1.2" \
-    pandas matplotlib stable-baselines3
-
-# 4. Clone and Build ns-3
-WORKDIR /opt
-RUN git clone https://gitlab.com/nsnam/ns-3-dev.git ns-3
-
+# Ensure permissions and paths are correct for the new folder
 WORKDIR /opt/ns-3
-RUN git clone https://github.com/hust-diangroup/ns3-ai.git contrib/ai
 
-# 5. Configure and Build ns-3 with Python bindings
-RUN ./ns3 configure --disable-examples --disable-tests \
-    -- -DPython3_EXECUTABLE=$(which python3)
-RUN ./ns3 build
+# We force the removal of old links and create fresh ones pointing to the /app volume
+RUN rm -f scratch/dr_sim_compare.cc scratch/shm_types.h && \
+    ln -s /app/dr_sim_compare.cc scratch/dr_sim_compare.cc && \
+    ln -s /app/shm_types.h scratch/shm_types.h
 
-# 6. Fix ns3-ai Python Module
-# Initialized PYTHONPATH correctly to avoid the UndefinedVar warning
-# Change line 35 to this:
-ENV PYTHONPATH="/app:/opt/ns-3/contrib/ai/python_utils${PYTHONPATH:+:${PYTHONPATH}}"
+# Copy the data file directly into scratch so ns-3 finds it immediately
+# Note: Ensure node_max.csv is in your dr-migration-labv1 folder
+COPY node_max.csv /opt/ns-3/scratch/node_max.csv
 
-WORKDIR /opt/ns-3/contrib/ai/python_utils
-# Perform a standard install to ensure metadata is created
-RUN pip install .
+# Re-configure to ensure the build system registers the new scratch links
+RUN ./ns3 configure --disable-examples --disable-tests
 
-# 7. Final Workspace Setup
 WORKDIR /app
-
-# Ensure the app directory is writable (helps with root-owned file issues)
-RUN chmod -R 777 /app
-
-EXPOSE 8888
-
-CMD ["bash"]

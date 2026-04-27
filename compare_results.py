@@ -1,3 +1,4 @@
+# V1 version This script compares the results of the AI orchestrator and the fixed baseline for both a 5,000 node test and a full dataset test. It reads the shared memory to get the dropped request counts and success rates, then generates a comprehensive dashboard with three rows: Success Rate, Completion Time, and Dropped Requests. Each row compares the AI rApp against the Fixed Script for both test scenarios. The final report is saved as 'scalability_report_v2.png'.
 import os
 import time
 import pandas as pd

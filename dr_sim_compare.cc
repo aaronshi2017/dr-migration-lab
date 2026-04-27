@@ -1,3 +1,5 @@
+// This file is a simplified version of the DR simulation, designed to be easily compared against the Python version. this is v1 version.
+
 #include "ns3/core-module.h"
 #include "shm_types.h"
 #include <sys/mman.h>
@@ -160,18 +162,38 @@ int main(int argc, char *argv[]) {
     };
 
     Simulator::Schedule(MilliSeconds(50), CheckAI);
-    // Set a long safety timeout (e.g., 10 minutes of sim time)
-        // This ensures that even if Python stops, C++ stays alive 
-        // to process the 3.4s delays of the final nodes.
-    Simulator::Stop(Seconds(600.0)); 
 
-    std::cout << "[SYSTEM] Simulator starting..." << std::endl;
-    Simulator::Run();
-    
-    // Important: Final check after Run() finishes
+    std::cout << "[SYSTEM] Real-time loop starting. Waiting for Python..." << std::endl;
+
+    // Real-time blocking loop
+    while (true) {
+        if (shm->trigger == 1) {
+            uint32_t start = shm->cmd_start_id;
+            uint32_t end = shm->cmd_end_id;
+            for (uint32_t i = start; i < end && i < shm->node_count; ++i) {
+                if (shm->nodes[i].status == 0) {
+                    shm->nodes[i].status = 1;
+                    for (uint32_t u = 0; u < shm->nodes[i].rrc_limit; ++u) {
+                        if (shm->core.queue_depth < core.m_capacity) {
+                            shm->core.queue_depth++;
+                            shm->core.queue_depth--;
+                            shm->nodes[i].processed_ue++;
+                        } else {
+                            shm->core.dropped_reqs++;
+                            shm->nodes[i].processed_ue++;
+                        }
+                    }
+                    if (shm->nodes[i].processed_ue >= shm->nodes[i].rrc_limit) {
+                        shm->nodes[i].status = 2;
+                        shm->core.total_finished++;
+                    }
+                }
+            }
+            shm->trigger = 0; // Handshake complete
+        }
+        usleep(10000); // 10ms poll interval only
+    }
+
     std::cout << "[FINISH] Final Finished Count: " << shm->core.total_finished << std::endl;
-    
-    Simulator::Destroy();
     return 0;
-
 }

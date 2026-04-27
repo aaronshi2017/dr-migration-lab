@@ -1,16 +1,20 @@
+version: '3.8'
+
 services:
-  ns3-lab:
-    image: ns3-ai-lab
-    container_name: ns3_ai_container
+  dr-lab-v2:
+    image: dr-lab-final:v1
+    container_name: dr-lab-v2
+    # CRITICAL: Enables the high-speed bridge between C++ and Python
+    ipc: host  
+    privileged: true
     volumes:
       - .:/app
     ports:
-      - "8888:8888"
-    ipc: host  # CRITICAL: This allows ns-3 and Python to share memory
+      - "8888:8888" # Keeping Jupyter port access
+      - "6006:6006" # Adding TensorBoard for RL monitoring
     ulimits:
       memlock: -1
       stack: 67108864
-    # If you don't have an NVIDIA GPU active, you can delete the 'deploy' section below
     deploy:
       resources:
         reservations:
@@ -18,11 +22,14 @@ services:
             - driver: nvidia
               count: all
               capabilities: [gpu]
+    # Default command starts Jupyter, but keeps the terminal open for your ns-3 runs
     command: >
-      jupyter lab 
-      --ip=0.0.0.0 
-      --port=8888 
-      --no-browser 
-      --allow-root 
-      --NotebookApp.token='' 
+      jupyter lab
+      --ip=0.0.0.0
+      --port=8888
+      --no-browser
+      --allow-root
+      --NotebookApp.token=''
       --NotebookApp.password=''
+      --notebook-dir=/app
+    working_dir: /app

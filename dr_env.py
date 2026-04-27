@@ -2,151 +2,62 @@ import gymnasium as gym
 from gymnasium import spaces
 import numpy as np
 import time
-from shm_types import DrSharedMemory  # <--- Crucial: Reference the memory structure
+from shm_types import DrSharedMemory
 
 class DrMigrationEnv(gym.Env):
     def __init__(self, shm_obj):
         super(DrMigrationEnv, self).__init__()
         self.shm = shm_obj
-        
-        # 1. Action: Batch size (1 to 128 nodes at once)
-        self.action_space = spaces.Discrete(128) 
-        
-        # 2. Observation: [Current Queue, Avg RRC of next batch, Remaining Nodes]
-        # We increase the 'high' range to accommodate 15,000+ nodes
-
-        self.observation_space = spaces.Box(
-            low=0, high=1e9, shape=(4,), dtype=np.float32
-        )
+        self.action_space = spaces.Discrete(128)
+        self.observation_space = spaces.Box(low=0, high=1e9, shape=(4,), dtype=np.float32)
         self.cursor = 0
 
     def _get_obs(self):
         current_node_count = self.shm.node_count
-        
-        # 1. Normalize Queue Depth (0 to 1.0)
-        # Based on your MME Capacity of 24,000
         normalized_q = float(self.shm.core.queue_depth) / 24000.0
-        
-        # 2. Normalize Next Batch Weight (0 to 1.0)
-        # Assuming max RRC_limit per node is around 250 (adjust if higher)
         raw_weight = np.mean([
             self.shm.nodes[i].rrc_limit for i in range(self.cursor, min(self.cursor + 10, current_node_count))
         ]) if self.cursor < current_node_count else 0
-        normalized_weight = float(raw_weight) / 250.0 
-        
-        # 3. Normalize Progress (Remaining Nodes) (0 to 1.0)
+        normalized_weight = float(raw_weight) / 250.0
         remaining_nodes = current_node_count - self.cursor
         normalized_remaining = float(remaining_nodes) / 13828.0
-        
-        # 4. Normalize Success Count (0 to 1.0)
         normalized_success = float(self.shm.core.total_finished) / 13828.0
-
-        # RETURN 4 VALUES: Perfectly scaled for the PPO "Brain"
-        return np.array([
-            normalized_q, 
-            normalized_weight, 
-            normalized_remaining,
-            normalized_success
-        ], dtype=np.float32)
-
-    # def step(self, action):
-    #     batch_size = int(action) + 1
-    #     start = self.cursor
-    #     # Dynamically calculate end point based on SHM node_count
-    #     current_node_count = self.shm.node_count
-    #     end = min(start + batch_size - 1, current_node_count - 1)
-        
-    #     # Snapshot drops for reward calculation
-    #     initial_drops = self.shm.core.dropped_reqs
-        
-    #     # Send Command to C++
-    #     self.shm.cmd_start_id = start
-    #     self.shm.cmd_end_id = end
-    #     self.shm.trigger = 1 
-        
-    #     # Wait for C++ to finish processing the batch
-    #     # If your C++ script clears 'trigger' to 0 when done, use a while loop here instead
-    #     # Inside step(self, action) in dr_env.py
-    #     # Wait for C++ to finish (Handshake)
-    #     start_wait = time.time()
-    #     while self.shm.trigger != 0:
-    #         time.sleep(0.001) # Tiny sleep to save CPU
-    #         if time.time() - start_wait > 5.0: # 5 second timeout
-    #             print("TIMEOUT: C++ is not responding!")
-    #             self.shm.trigger = 0 # Force reset to prevent hang
-    #             break
-
-    #     self.cursor = end + 1
-        
-    #     # Reward Logic
-    #     new_drops = self.shm.core.dropped_reqs - initial_drops
-    #     reward = (batch_size * 2) - (new_drops * 10)
-        
-    #     if self.shm.core.queue_depth > 22000:
-    #         reward -= 20 
-            
-    #     done = self.cursor >= current_node_count
-    #     truncated = False
-        
-    #     return self._get_obs(), float(reward), done, truncated, {}
+        return np.array([normalized_q, normalized_weight, normalized_remaining, normalized_success], dtype=np.float32)
 
     def step(self, action):
-        # ... (Existing code for batch_size, end, and trigger) ...
         batch_size = int(action) + 1
         start = self.cursor
-        # Dynamically calculate end point based on SHM node_count
         current_node_count = self.shm.node_count
         end = min(start + batch_size - 1, current_node_count - 1)
-        
-        # Snapshot drops for reward calculation
         initial_drops = self.shm.core.dropped_reqs
-        
-        # Send Command to C++
+
+        # Send command to C++
         self.shm.cmd_start_id = start
         self.shm.cmd_end_id = end
-        self.shm.trigger = 1 
-        
-        # 1. Capture current state for reward
-        current_node_count = self.shm.node_count
+        self.shm.trigger = 1
+
+        # RESTORED HANDSHAKE: Wait for C++ to acknowledge (set trigger back to 0)
+        start_wait = time.time()
+        while self.shm.trigger != 0:
+            time.sleep(0.005)
+            if time.time() - start_wait > 10.0:
+                print(f'TIMEOUT: C++ not responding at cursor {self.cursor}!')
+                self.shm.trigger = 0
+                break
+
         new_drops = self.shm.core.dropped_reqs - initial_drops
-        # Normalize queue depth (0.0 to 1.0) based on your 24,000 capacity
         q_depth_ratio = float(self.shm.core.queue_depth) / 24000.0
-
-        # 2. UPDATED DYNAMIC REWARD LOGIC
-        # --- Throughput Incentive: Reward higher batch sizes (0.015 to 2.0 range)
-        # This prevents the AI from just picking "8" forever if 16 or 32 is safe.
-        throughput_reward = (batch_size / 64.0) * 2.0 
-
-        # --- Success Reward: Flat bonus for every node successfully pushed
-        # Since new_drops captures failures, we assume (batch_size - drops) succeeded
+        throughput_reward = (batch_size / 64.0) * 2.0
         success_reward = max(0, (batch_size - new_drops)) * 0.5
-
-        # --- Exponential Queue Penalty: 
-        # Becomes very aggressive only after the queue hits 70% (16,800 nodes)
-        if q_depth_ratio > 0.7:
-            queue_penalty = (q_depth_ratio ** 2) * 50.0
-        else:
-            queue_penalty = 0
-
-        # --- Severe Drop Penalty: Keep this high to ensure reliability
+        queue_penalty = (q_depth_ratio ** 2) * 50.0 if q_depth_ratio > 0.7 else 0
         drop_penalty = new_drops * 25.0
-
-        # Final Reward Calculation
         reward = throughput_reward + success_reward - queue_penalty - drop_penalty
 
-        # 3. Update cursor and check completion
         self.cursor = end + 1
         done = self.cursor >= current_node_count
-        truncated = False
-        
-        return self._get_obs(), float(reward), done, truncated, {}
+        return self._get_obs(), float(reward), done, False, {}
 
     def reset(self, seed=None, options=None):
-        # Handle Gymnasium's newer seed/options requirements
         super().reset(seed=seed)
-        
-        # Reset the logical cursor
         self.cursor = 0
-        
-        # Return observation AND an empty info dictionary (Unpacking fix)
         return self._get_obs(), {}
