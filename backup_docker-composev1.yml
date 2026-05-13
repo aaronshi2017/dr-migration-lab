@@ -1,0 +1,28 @@
+services:
+  ns3-lab:
+    image: ns3-ai-lab
+    container_name: ns3_ai_container
+    volumes:
+      - .:/app
+    ports:
+      - "8888:8888"
+    ipc: host  # CRITICAL: This allows ns-3 and Python to share memory
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    # If you don't have an NVIDIA GPU active, you can delete the 'deploy' section below
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    command: >
+      jupyter lab 
+      --ip=0.0.0.0 
+      --port=8888 
+      --no-browser 
+      --allow-root 
+      --NotebookApp.token='' 
+      --NotebookApp.password=''
